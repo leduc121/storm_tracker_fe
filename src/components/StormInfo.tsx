@@ -1,8 +1,9 @@
-import { Wind, Gauge, MapPin, Clock, TrendingUp, AlertTriangle, Badge } from 'lucide-react';
+import { Wind, Gauge, MapPin, Clock, TrendingUp, AlertTriangle } from 'lucide-react';
 import { getCategoryColor, getCategoryName, type Storm } from '../lib/stormData';
 import { calculateBearing, calculateDistance, getDirectionName } from '../lib/mapUtils';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Separator } from './ui/separator';
+import { Badge } from './ui/badge';
 
 interface StormInfoProps {
   storm: Storm;
@@ -26,7 +27,7 @@ export default function StormInfo({ storm }: StormInfoProps) {
   const direction = getDirectionName(bearing);
   const speed = nextForecast ? Math.round(distance / 24) : 0; // km/h (giả sử 24h)
 
-  const getStatusColor = (status: string) => {
+  const getStatusVariant = (status: string) => {
     switch (status) {
       case 'active': return 'destructive';
       case 'weakening': return 'secondary';
@@ -49,7 +50,7 @@ export default function StormInfo({ storm }: StormInfoProps) {
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-xl font-bold">{storm.nameVi}</CardTitle>
-          <Badge fontVariant={getStatusColor(storm.status)}>
+          <Badge variant={getStatusVariant(storm.status)}>
             {getStatusText(storm.status)}
           </Badge>
         </div>
@@ -62,7 +63,7 @@ export default function StormInfo({ storm }: StormInfoProps) {
         {/* Thông tin vị trí hiện tại */}
         <div className="space-y-3">
           <div className="flex items-center gap-2">
-            <MapPin className="h-4 w-4 text-red-500" />
+            <MapPin className="h-4 w-4 text-primary" />
             <span className="font-semibold">Vị trí hiện tại</span>
           </div>
           <div className="pl-6 space-y-1 text-sm">
@@ -77,10 +78,10 @@ export default function StormInfo({ storm }: StormInfoProps) {
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <Wind className="h-4 w-4 text-blue-500" />
+              <Wind className="h-4 w-4 text-primary" />
               <span className="text-sm font-medium">Tốc độ gió</span>
             </div>
-            <p className="text-2xl font-bold text-blue-600">
+            <p className="text-2xl font-bold text-foreground">
               {currentPos.windSpeed}
               <span className="text-sm font-normal ml-1">km/h</span>
             </p>
@@ -88,10 +89,10 @@ export default function StormInfo({ storm }: StormInfoProps) {
           
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <Gauge className="h-4 w-4 text-orange-500" />
+              <Gauge className="h-4 w-4 text-primary" />
               <span className="text-sm font-medium">Áp suất</span>
             </div>
-            <p className="text-2xl font-bold text-orange-600">
+            <p className="text-2xl font-bold text-foreground">
               {currentPos.pressure}
               <span className="text-sm font-normal ml-1">hPa</span>
             </p>
@@ -101,12 +102,12 @@ export default function StormInfo({ storm }: StormInfoProps) {
         {/* Cấp độ bão */}
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4" style={{ color: getCategoryColor(currentPos.category) }} />
+            <AlertTriangle className="h-4 w-4 text-foreground" style={{ color: getCategoryColor(currentPos.category) }} />
             <span className="text-sm font-medium">Cấp độ</span>
           </div>
           <div className="flex items-center gap-2">
             <div 
-              className="w-4 h-4 rounded-full border-2 border-gray-300"
+              className="w-4 h-4 rounded-full border-2 border-border"
               style={{ backgroundColor: getCategoryColor(currentPos.category) }}
             />
             <span className="font-semibold">{getCategoryName(currentPos.category)}</span>
@@ -119,7 +120,7 @@ export default function StormInfo({ storm }: StormInfoProps) {
         {nextForecast && (
           <div className="space-y-3">
             <div className="flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-green-500" />
+              <TrendingUp className="h-4 w-4 text-primary" />
               <span className="font-semibold">Hướng di chuyển dự kiến</span>
             </div>
             <div className="pl-6 space-y-1 text-sm">
@@ -135,7 +136,7 @@ export default function StormInfo({ storm }: StormInfoProps) {
             <Separator />
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <Clock className="h-4 w-4 text-purple-500" />
+                <Clock className="h-4 w-4 text-primary" />
                 <span className="font-semibold">Dự báo tiếp theo</span>
               </div>
               <div className="pl-6 space-y-1 text-sm">

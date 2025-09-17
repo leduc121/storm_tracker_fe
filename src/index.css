@@ -26,10 +26,10 @@
 }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
+    --background: 228 10% 15%; /* Màu nền xám đậm */
+    --foreground: 210 20% 85%; /* Màu chữ xám nhạt hơn */
 
-    --card: 222.2 84% 4.9%;
+    --card: 228 10% 20%; /* Màu card xám hơn */
     --card-foreground: 210 40% 98%;
 
     --popover: 222.2 84% 4.9%;
@@ -71,5 +71,24 @@
 
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+.custom-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.custom-icon > div {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.5);
   }
 }

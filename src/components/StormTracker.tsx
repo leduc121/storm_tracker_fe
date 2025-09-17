@@ -25,11 +25,11 @@ export default function StormTracker({ storms, selectedStorm, onStormSelect }: S
         {storms.map((storm) => (
           <div
             key={storm.id}
-            className={`p-3 rounded-lg border-2 cursor-pointer transition-all duration-200 ${
-              selectedStorm?.id === storm.id
-                ? 'border-blue-500 bg-blue-50'
-                : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-            }`}
+            className={`p-3 rounded-lg border-2 cursor-pointer transition-all duration-200 
+              ${selectedStorm?.id === storm.id
+                ? 'border-primary bg-accent text-accent-foreground'
+                : 'border-border bg-secondary hover:border-border/50 hover:bg-muted'
+              }`}
             onClick={() => onStormSelect(storm)}
           >
             <div className="flex items-start justify-between mb-2">
@@ -53,11 +53,11 @@ export default function StormTracker({ storms, selectedStorm, onStormSelect }: S
             
             <div className="grid grid-cols-2 gap-2 text-sm">
               <div className="flex items-center gap-1">
-                <MapPin className="h-3 w-3 text-gray-500" />
+                <MapPin className="h-3 w-3 text-muted-foreground" />
                 <span>{storm.currentPosition.lat.toFixed(1)}°N</span>
               </div>
               <div className="flex items-center gap-1">
-                <Wind className="h-3 w-3 text-blue-500" />
+                <Wind className="h-3 w-3 text-muted-foreground" />
                 <span>{storm.currentPosition.windSpeed} km/h</span>
               </div>
             </div>
@@ -67,7 +67,7 @@ export default function StormTracker({ storms, selectedStorm, onStormSelect }: S
               <p>Áp suất: {storm.currentPosition.pressure} hPa</p>
             </div>
             
-            <div className="mt-2 pt-2 border-t border-gray-200">
+            <div className="mt-2 pt-2 border-t border-border">
               <p className="text-xs text-muted-foreground">
                 Cập nhật: {new Date(storm.currentPosition.timestamp).toLocaleString('vi-VN', {
                   month: 'short',
