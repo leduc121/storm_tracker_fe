@@ -6,7 +6,6 @@ import { Card, CardContent } from '../components/ui/card';
 import WeatherMap from '../components/WeatherMap';
 import StormInfo from '../components/StormInfo';
 import { ThemeToggle } from '../components/ThemeToggle';
-import WeeklyForecast from '../components/WeeklyForecast';
 
 export default function Index() {
   const [selectedStorm, setSelectedStorm] = useState<Storm | undefined>(undefined);
@@ -16,7 +15,6 @@ export default function Index() {
 
   const handleStormSelect = (storm: Storm) => {
     setSelectedStorm(storm);
-    // Khi chọn bão để xem chi tiết, dừng chế độ phát tất cả
     setIsPlayingAll(false);
   };
 
@@ -38,8 +36,8 @@ export default function Index() {
 
   const handlePlayAll = () => {
     setIsPlayingAll(true);
-    setSelectedStorm(undefined); // Tắt chế độ xem chi tiết bão
-    setShowSidebar(false); // Đóng sidebar để tập trung vào bản đồ
+    setSelectedStorm(undefined);
+    setShowSidebar(false);
   };
 
   const handleReset = () => {
@@ -62,13 +60,13 @@ export default function Index() {
                 </h1>
                 <p className="text-sm text-gray-600 dark:text-gray-400">
                   Theo dõi và dự báo hướng đi của bão tại Việt Nam và Biển Đông
-                </p>  
+                </p>
               </div>
             </div>
-              
+            
             <div className="flex items-center gap-4">
               <button
-                onClick={toggleSidebar} 
+                onClick={toggleSidebar}
                 className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-lg"
               >
                 <Eye className="h-4 w-4" />
@@ -109,7 +107,6 @@ export default function Index() {
                 </div>
               </div>
 
-              {/* Animation Controls - Vị trí cố định trên bản đồ */}
               <div className="absolute top-4 right-4 z-[1000]">
                 <div className="flex items-center gap-2">
                   <button
@@ -206,15 +203,13 @@ export default function Index() {
           <Eye className="h-5 w-5 group-hover:scale-110 transition-transform" />
         </button>
       </div>
-      <section className="container mx-auto px-4 py-6 relative z-10">
-        <h2 className="text-2xl font-bold mb-4 dark:text-gray-100">Dự báo thời tiết 7 ngày</h2>
-        <WeeklyForecast />
-      </section>
+      
+      {/* Footer */}
       <footer className="bg-white/80 backdrop-blur-sm border-t border-gray-200 relative z-10 dark:bg-gray-950/80 dark:border-gray-800">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400">
             <div>
-              <p>© 2024 Dự báo Bão Việt Nam. Dữ liệu mô phỏng cho mục đích demo.</p>
+              <p>© 2024 Dự báo Bão Việt Nam. Dữ liệu mô phỏng.</p>
             </div>
             <div className="flex items-center gap-4">
               <span>Nguồn dữ liệu: Mô phỏng</span>
