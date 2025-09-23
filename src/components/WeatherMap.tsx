@@ -11,60 +11,55 @@ import { Button } from './ui/button';
 interface WeatherMapProps {
   storms: Storm[];
   selectedStorm?: Storm;
+  isPlayingAll: boolean; 
 }
 
-// Component để set bounds cho map
 function SetMapBounds() {
   const map = useMap();
-  
+
   useEffect(() => {
     map.setMaxBounds(VIETNAM_BOUNDS);
     map.setMinZoom(5);
     map.setMaxZoom(10);
   }, [map]);
-  
+
   return null;
 }
 
-// Component hiển thị đường đi bão
 function StormPath({ storm, showAnimation }: { storm: Storm; showAnimation: boolean }) {
   const historicalPath = storm.historical.map(point => [point.lat, point.lng] as [number, number]);
   const forecastPath = storm.forecast.map(point => [point.lat, point.lng] as [number, number]);
   const currentPos = [storm.currentPosition.lat, storm.currentPosition.lng] as [number, number];
-  
+
   const fullHistoricalPath = [...historicalPath, currentPos];
   const fullForecastPath = [currentPos, ...forecastPath];
 
   return (
     <>
-      {/* Đường đi đã qua (màu đỏ đậm) */}
-      <Polyline 
+      <Polyline
         positions={fullHistoricalPath}
-        pathOptions={{ 
-          color: '#dc2626', 
-          weight: 4, 
+        pathOptions={{
+          color: '#dc2626',
+          weight: 4,
           opacity: 0.8,
           dashArray: '0'
         }}
       />
-      
-      {/* Đường đi dự kiến (màu đỏ nhạt, nét đứt) */}
-      <Polyline 
+
+      <Polyline
         positions={fullForecastPath}
-        pathOptions={{ 
-          color: '#f87171', 
-          weight: 3, 
+        pathOptions={{
+          color: '#f87171',
+          weight: 3,
           opacity: 0.6,
           dashArray: '10, 10'
         }}
       />
-      
-      {/* Hiển thị animation hoặc vị trí tĩnh */}
+
       {showAnimation ? (
         <StormAnimation storm={storm} isActive={true} />
       ) : (
         <>
-          {/* Vị trí hiện tại */}
           <CircleMarker
             center={currentPos}
             radius={12}
@@ -86,8 +81,7 @@ function StormPath({ storm, showAnimation }: { storm: Storm; showAnimation: bool
               </div>
             </Popup>
           </CircleMarker>
-          
-          {/* Các điểm dự báo */}
+
           {storm.forecast.map((point, index) => (
             <CircleMarker
               key={`forecast-${index}`}
@@ -117,24 +111,9 @@ function StormPath({ storm, showAnimation }: { storm: Storm; showAnimation: bool
   );
 }
 
-export default function WeatherMap({ storms, selectedStorm }: WeatherMapProps) {
-  const [isAnimating, setIsAnimating] = useState(false);
-  const [animatingStorm, setAnimatingStorm] = useState<string | null>(null);
-
-  const handleToggleAnimation = () => {
-    if (isAnimating) {
-      setIsAnimating(false);
-      setAnimatingStorm(null);
-    } else {
-      setIsAnimating(true);
-      setAnimatingStorm(selectedStorm?.id || storms[0]?.id || null);
-    }
-  };
-
-  const handleResetAnimation = () => {
-    setIsAnimating(false);
-    setAnimatingStorm(null);
-  };
+export default function WeatherMap({ storms, selectedStorm, isPlayingAll }: WeatherMapProps) {
+  
+  const stormsToDisplay = selectedStorm ? [selectedStorm] : storms;
 
   return (
     <div className="h-full w-full relative">
@@ -146,67 +125,26 @@ export default function WeatherMap({ storms, selectedStorm }: WeatherMapProps) {
         scrollWheelZoom={true}
       >
         <SetMapBounds />
-        
-        {/* Tile layer - OpenStreetMap */}
+
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        
-        {/* Hiển thị tất cả bão */}
-        {storms.map(storm => (
-          <StormPath 
-            key={storm.id} 
-            storm={storm} 
-            showAnimation={isAnimating && animatingStorm === storm.id}
+
+        {/* Hiển thị bão dựa trên trạng thái đã chọn hoặc đang phát tất cả */}
+        {stormsToDisplay.map(storm => (
+          <StormPath
+            key={storm.id}
+            storm={storm}
+            showAnimation={isPlayingAll || selectedStorm?.id === storm.id}
           />
         ))}
       </MapContainer>
-      
-      {/* Animation Controls */}
-      <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-sm p-3 rounded-lg shadow-lg z-[1000]">
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant={isAnimating ? "destructive" : "default"}
-            onClick={handleToggleAnimation}
-            className="flex items-center gap-2"
-          >
-            {isAnimating ? (
-              <>
-                <Pause className="h-4 w-4" />
-                Dừng
-              </>
-            ) : (
-              <>
-                <Play className="h-4 w-4" />
-                Phát
-              </>
-            )}
-          </Button>
-          
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handleResetAnimation}
-            className="flex items-center gap-2"
-          >
-            <RotateCcw className="h-4 w-4" />
-            Reset
-          </Button>
-        </div>
-        
-        {isAnimating && (
-          <p className="text-xs text-muted-foreground mt-2">
-            Đang mô phỏng: {storms.find(s => s.id === animatingStorm)?.nameVi}
-          </p>
-        )}
-      </div>
-      
+
       {/* Legend */}
       <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur-sm p-3 rounded-lg shadow-lg z-[1000]">
         <h4 className="font-semibold mb-2 text-sm">Chú thích</h4>
-        <div className="space-y-1 text-xs">
+        <div className="space-y-1 text-xs"> 
           <div className="flex items-center gap-2">
             <div className="w-4 h-1 bg-red-600"></div>
             <span>Đường đi đã qua</span>

@@ -10,7 +10,7 @@ import { useTheme } from './hooks/use-theme';
 const queryClient = new QueryClient();
 
 const App = () => {
-  useTheme(); // Sử dụng hook tại đây
+  useTheme();
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -26,5 +26,5 @@ const App = () => {
     </QueryClientProvider>
   );
 };
-
+  
 export default App;
