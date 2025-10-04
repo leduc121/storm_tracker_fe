@@ -1,5 +1,4 @@
-// Đây là dữ liệu gió vector giả lập, được tạo để mô phỏng hiệu ứng chuyển động
-// Dữ liệu này sẽ làm cho các luồng khí chuyển động từ trái sang phải trên bản đồ
+
 export const mockWindData = [
   {
     "header": {

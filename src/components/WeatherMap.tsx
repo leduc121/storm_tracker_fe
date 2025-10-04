@@ -1,17 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { MapContainer, TileLayer, Polyline, CircleMarker, Popup, useMap } from 'react-leaflet';
-import { Icon, divIcon } from 'leaflet';
+import { divIcon } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import StormAnimation from './StormAnimation';
-import { Play, Pause, RotateCcw } from 'lucide-react';
-import { getCategoryColor, type Storm } from '../lib/stormData';
+import { getCategoryColor, type Storm, type StormPoint } from '../lib/stormData';
 import { DEFAULT_ZOOM, VIETNAM_BOUNDS, VIETNAM_CENTER } from '../lib/mapUtils';
-import { Button } from './ui/button';
 
 interface WeatherMapProps {
   storms: Storm[];
   selectedStorm?: Storm;
-  isPlayingAll: boolean; 
+  isPlayingAll: boolean;
 }
 
 function SetMapBounds() {
@@ -26,73 +24,109 @@ function SetMapBounds() {
   return null;
 }
 
-function StormPath({ storm, showAnimation }: { storm: Storm; showAnimation: boolean }) {
-  const historicalPath = storm.historical.map(point => [point.lat, point.lng] as [number, number]);
-  const forecastPath = storm.forecast.map(point => [point.lat, point.lng] as [number, number]);
-  const currentPos = [storm.currentPosition.lat, storm.currentPosition.lng] as [number, number];
+// Hàm mới để tạo các đoạn đường đi được tô màu theo cấp độ bão (CẬP NHẬT)
+function getColoredPathSegments(points: StormPoint[], isForecast: boolean) {
+    if (points.length < 2) return [];
 
-  const fullHistoricalPath = [...historicalPath, currentPos];
-  const fullForecastPath = [currentPos, ...forecastPath];
+    const segments = [];
+    for (let i = 0; i < points.length - 1; i++) {
+        const startPoint = points[i];
+        const endPoint = points[i + 1];
+
+        // Lấy màu dựa trên cấp độ bão của điểm cuối (endPoint)
+        const color = getCategoryColor(endPoint.category);
+
+        segments.push({
+            positions: [
+                [startPoint.lat, startPoint.lng],
+                [endPoint.lat, endPoint.lng]
+            ] as [number, number][],
+            pathOptions: {
+                color: color,
+                weight: 6, // Tăng độ dày đường
+                opacity: 1, 
+                dashArray: '0', // Đường liền (solid)
+            }
+        });
+    }
+    return segments;
+}
+
+function StormPath({ storm, showAnimation }: { storm: Storm; showAnimation: boolean }) {
+  // Điểm hiện tại
+  const currentPosPoint = storm.currentPosition;
+  
+  // Lịch sử: Các điểm đã qua + Vị trí hiện tại
+  const historicalPathPoints = [...storm.historical, currentPosPoint];
+  
+  // Dự báo: Vị trí hiện tại + Các điểm dự báo
+  const forecastPathPoints = [currentPosPoint, ...storm.forecast];
+
+  // Tạo các đoạn đường màu cho Lịch sử
+  const historicalSegments = getColoredPathSegments(historicalPathPoints, false);
+  
+  // Tạo các đoạn đường màu cho Dự báo (Chúng ta vẫn coi forecast là đoạn liền nhau)
+  const forecastSegments = getColoredPathSegments(forecastPathPoints, true);
 
   return (
     <>
-      <Polyline
-        positions={fullHistoricalPath}
-        pathOptions={{
-          color: '#dc2626',
-          weight: 4,
-          opacity: 0.8,
-          dashArray: '0'
-        }}
-      />
+      {/* VẼ ĐƯỜNG ĐI LỊCH SỬ (SOLID, MÀU THEO CẤP ĐỘ) */}
+      {historicalSegments.map((segment, index) => (
+          <Polyline 
+              key={`hist-${storm.id}-${index}`}
+              positions={segment.positions}
+              pathOptions={segment.pathOptions}
+          />
+      ))}
 
-      <Polyline
-        positions={fullForecastPath}
-        pathOptions={{
-          color: '#f87171',
-          weight: 3,
-          opacity: 0.6,
-          dashArray: '10, 10'
-        }}
-      />
+      {/* VẼ ĐƯỜNG ĐI DỰ BÁO (SOLID, MÀU THEO CẤP ĐỘ) */}
+      {forecastSegments.map((segment, index) => (
+          <Polyline 
+              key={`fore-${storm.id}-${index}`}
+              positions={segment.positions}
+              pathOptions={segment.pathOptions}
+          />
+      ))}
 
       {showAnimation ? (
         <StormAnimation storm={storm} isActive={true} />
       ) : (
         <>
+          {/* Vị trí hiện tại (Hình tròn lớn) */}
           <CircleMarker
-            center={currentPos}
-            radius={12}
+            center={[currentPosPoint.lat, currentPosPoint.lng]}
+            radius={14} // Tăng kích thước để nổi bật
             pathOptions={{
-              fillColor: getCategoryColor(storm.currentPosition.category),
-              color: '#000',
-              weight: 2,
+              fillColor: getCategoryColor(currentPosPoint.category),
+              color: '#333', // Viền đen đậm
+              weight: 3,
               opacity: 1,
-              fillOpacity: 0.8
+              fillOpacity: 0.9
             }}
           >
             <Popup>
               <div className="p-2">
                 <h3 className="font-bold text-lg">{storm.nameVi}</h3>
-                <p><strong>Vị trí hiện tại:</strong> {storm.currentPosition.lat.toFixed(1)}°N, {storm.currentPosition.lng.toFixed(1)}°E</p>
-                <p><strong>Tốc độ gió:</strong> {storm.currentPosition.windSpeed} km/h</p>
-                <p><strong>Áp suất:</strong> {storm.currentPosition.pressure} hPa</p>
-                <p><strong>Cấp độ:</strong> {storm.currentPosition.category}</p>
+                <p><strong>Vị trí hiện tại:</strong> {currentPosPoint.lat.toFixed(1)}°N, {currentPosPoint.lng.toFixed(1)}°E</p>
+                <p><strong>Tốc độ gió:</strong> {currentPosPoint.windSpeed} km/h</p>
+                <p><strong>Áp suất:</strong> {currentPosPoint.pressure} hPa</p>
+                <p><strong>Cấp độ:</strong> {currentPosPoint.category}</p>
               </div>
             </Popup>
           </CircleMarker>
 
+          {/* Các điểm dự báo (Chấm tròn nhỏ) */}
           {storm.forecast.map((point, index) => (
             <CircleMarker
               key={`forecast-${index}`}
               center={[point.lat, point.lng]}
-              radius={8}
+              radius={7} // Kích thước nhỏ hơn
               pathOptions={{
                 fillColor: getCategoryColor(point.category),
-                color: '#000',
-                weight: 1,
-                opacity: 0.7,
-                fillOpacity: 0.5
+                color: '#fff', // Viền trắng
+                weight: 2,
+                opacity: 0.8,
+                fillOpacity: 1
               }}
             >
               <Popup>
@@ -131,7 +165,6 @@ export default function WeatherMap({ storms, selectedStorm, isPlayingAll }: Weat
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
-        {/* Hiển thị bão dựa trên trạng thái đã chọn hoặc đang phát tất cả */}
         {stormsToDisplay.map(storm => (
           <StormPath
             key={storm.id}
@@ -141,7 +174,6 @@ export default function WeatherMap({ storms, selectedStorm, isPlayingAll }: Weat
         ))}
       </MapContainer>
 
-      {/* Legend */}
       <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur-sm p-3 rounded-lg shadow-lg z-[1000]">
         <h4 className="font-semibold mb-2 text-sm">Chú thích</h4>
         <div className="space-y-1 text-xs"> 
