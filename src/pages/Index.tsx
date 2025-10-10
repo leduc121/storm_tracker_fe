@@ -256,7 +256,7 @@ export default function Index() {
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400">
             <div>
-              <p>© 2024 Dự báo Bão Việt Nam. Dữ liệu mô phỏng cho mục đích demo.</p>
+              <p>© 2025 Dự báo Bão Việt Nam. Dữ liệu mô phỏng cho mục đích demo.</p>
             </div>
             <div className="flex items-center gap-4">
               <span>Nguồn dữ liệu: Mô phỏng</span>

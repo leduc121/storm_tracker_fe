@@ -161,6 +161,11 @@ export default function StormAnimation({ storm, isActive }: StormAnimationProps)
   // Chỉ vẽ cone cho forecast (từ vị trí hiện tại trở đi)
   const forecastPoints = allPoints.slice(currentIdx);
   
+  // Tính hướng đi cuối cùng cho vòng tròn chỉ hướng
+  const lastPoint = allPoints[lastIndex];
+  const secondLastPoint = allPoints[lastIndex - 1];
+  const finalBearing = secondLastPoint ? bearing(secondLastPoint, lastPoint) : 0;
+  
   const leftOuter: [number, number][] = [];
   const rightOuter: [number, number][] = [];
   const leftMiddle: [number, number][] = [];
@@ -468,6 +473,82 @@ export default function StormAnimation({ storm, isActive }: StormAnimationProps)
           </div>
         </Popup>
       </CircleMarker>
+
+      {/* Vòng tròn chỉ hướng đi cuối cùng */}
+      {lastIndex >= 0 && (
+        <>
+          {/* Vòng tròn lớn tại điểm cuối */}
+          <CircleMarker
+            center={[lastPoint.lat, lastPoint.lng]}
+            radius={20}
+            pathOptions={{
+              fillColor: "transparent",
+              color: getCategoryColor(lastPoint.category),
+              weight: 3,
+              opacity: 0.7,
+              dashArray: "8,8",
+            }}
+          >
+            <Popup>
+              <div className="p-2">
+                <h3 className="font-bold text-lg">Điểm dự báo cuối</h3>
+                <p className="text-xs text-gray-500 mb-2">
+                  Vị trí dự kiến sau {forecastPoints.length * 6}h
+                </p>
+                <p>
+                  <strong>Thời gian:</strong>{" "}
+                  {new Date(lastPoint.timestamp).toLocaleString("vi-VN")}
+                </p>
+                <p>
+                  <strong>Vị trí:</strong> {lastPoint.lat.toFixed(2)}°N,{" "}
+                  {lastPoint.lng.toFixed(2)}°E
+                </p>
+                <p>
+                  <strong>Hướng di chuyển:</strong> {finalBearing.toFixed(0)}°
+                </p>
+              </div>
+            </Popup>
+          </CircleMarker>
+
+          {/* Mũi tên chỉ hướng */}
+          {(() => {
+            const arrowLength = 50; // km
+            const arrowTip = offsetPoint(lastPoint.lat, lastPoint.lng, finalBearing, arrowLength);
+            const arrowLeft = offsetPoint(arrowTip[0], arrowTip[1], finalBearing - 150, 15);
+            const arrowRight = offsetPoint(arrowTip[0], arrowTip[1], finalBearing + 150, 15);
+            
+            return (
+              <>
+                {/* Thân mũi tên */}
+                <Polyline
+                  positions={[
+                    [lastPoint.lat, lastPoint.lng],
+                    arrowTip as [number, number]
+                  ]}
+                  pathOptions={{
+                    color: getCategoryColor(lastPoint.category),
+                    weight: 4,
+                    opacity: 0.8,
+                  }}
+                />
+                {/* Đầu mũi tên */}
+                <Polyline
+                  positions={[
+                    arrowLeft as [number, number],
+                    arrowTip as [number, number],
+                    arrowRight as [number, number]
+                  ]}
+                  pathOptions={{
+                    color: getCategoryColor(lastPoint.category),
+                    weight: 4,
+                    opacity: 0.8,
+                  }}
+                />
+              </>
+            );
+          })()}
+        </>
+      )}
     </>
   );
 }
