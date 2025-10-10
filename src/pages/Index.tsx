@@ -16,7 +16,7 @@ export default function Index() {
   const [selectedStorm, setSelectedStorm] = useState<Storm | undefined>(undefined);
   const [storms, setStorms] = useState<Storm[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);  
   const [showSidebar, setShowSidebar] = useState(false);
   const [isPlayingAll, setIsPlayingAll] = useState(false);
 
