@@ -1,6 +1,6 @@
-import { Eye, Wind, MapPin, Badge } from 'lucide-react';
-import { getCategoryColor, getCategoryName, type Storm } from '../lib/stormData';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { ArrowUpRight, CloudRain, Wind, Thermometer, MapPin } from 'lucide-react';
+import { Card, CardContent } from './ui/card';
+import { type Storm } from '../lib/stormData';
 
 interface StormTrackerProps {
   storms: Storm[];
@@ -9,84 +9,50 @@ interface StormTrackerProps {
 }
 
 export default function StormTracker({ storms, selectedStorm, onStormSelect }: StormTrackerProps) {
+  if (storms.length === 0) {
+    return (
+      <div className="p-4 text-center text-gray-500 dark:text-gray-400">
+        <CloudRain className="h-12 w-12 mx-auto mb-2 opacity-50" />
+        <p>Hiện không có cơn bão nào được dự báo</p>
+      </div>
+    );
+  }
+
   return (
-    <Card className="h-full">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Eye className="h-5 w-5" />
-          Theo dõi bão
-        </CardTitle>
-        <p className="text-sm text-muted-foreground">
-          {storms.length} cơn bão đang được theo dõi
-        </p>
-      </CardHeader>
-      
-      <CardContent className="space-y-3">
-        {storms.map((storm) => (
-          <div
+    <div className="p-4 space-y-4">
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+        Các cơn bão sắp tới
+      </h3>
+      <div className="space-y-2">
+        {storms.map(storm => (
+          <Card
             key={storm.id}
-            className={`p-3 rounded-lg border-2 cursor-pointer transition-all duration-200 
-              ${selectedStorm?.id === storm.id
-                ? 'border-primary bg-accent text-accent-foreground'
-                : 'border-border bg-secondary hover:border-border/50 hover:bg-muted'
-              }`}
+            className={`cursor-pointer transition-all duration-200 hover:shadow-lg ${
+              selectedStorm?.id === storm.id
+                ? 'border-blue-500 ring-2 ring-blue-500'
+                : 'border-gray-200 dark:border-gray-700'
+            }`}
             onClick={() => onStormSelect(storm)}
           >
-            <div className="flex items-start justify-between mb-2">
-              <div>
-                <h3 className="font-semibold text-lg">{storm.nameVi}</h3>
-                <p className="text-sm text-muted-foreground">{storm.name}</p>
+            <CardContent className="p-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-100 rounded-full dark:bg-blue-900">
+                  <CloudRain className="h-6 w-6 text-blue-600 dark:text-blue-300" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-lg text-gray-900 dark:text-gray-100">{storm.nameVi}</h4>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Cập nhật: {new Date(storm.lastPointTime).toLocaleString('vi-VN')}
+                  </p>
+                </div>
               </div>
-              <div className="flex flex-col items-end gap-1">
-                <Badge 
-                  fontVariant={storm.status === 'active' ? 'destructive' : 'secondary'}
-                  className="text-xs"
-                >
-                  {storm.status === 'active' ? 'Hoạt động' : 'Suy yếu'}
-                </Badge>
-                <div 
-                  className="w-3 h-3 rounded-full border border-gray-300"
-                  style={{ backgroundColor: getCategoryColor(storm.currentPosition.category) }}
-                />
+              <div className="flex-shrink-0">
+                <ArrowUpRight className="h-5 w-5 text-gray-500 dark:text-gray-400" />
               </div>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-2 text-sm">
-              <div className="flex items-center gap-1">
-                <MapPin className="h-3 w-3 text-muted-foreground" />
-                <span>{storm.currentPosition.lat.toFixed(1)}°N</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <Wind className="h-3 w-3 text-muted-foreground" />
-                <span>{storm.currentPosition.windSpeed} km/h</span>
-              </div>
-            </div>
-            
-            <div className="mt-2 text-xs text-muted-foreground">
-              <p>{getCategoryName(storm.currentPosition.category)}</p>
-              <p>Áp suất: {storm.currentPosition.pressure} hPa</p>
-            </div>
-            
-            <div className="mt-2 pt-2 border-t border-border">
-              <p className="text-xs text-muted-foreground">
-                Cập nhật: {new Date(storm.currentPosition.timestamp).toLocaleString('vi-VN', {
-                  month: 'short',
-                  day: 'numeric',
-                  hour: '2-digit',
-                  minute: '2-digit'
-                })}
-              </p>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         ))}
-        
-        {storms.length === 0 && (
-          <div className="text-center py-8 text-muted-foreground">
-            <Eye className="h-12 w-12 mx-auto mb-2 opacity-50" />
-            <p>Hiện tại không có bão nào đang được theo dõi</p>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
