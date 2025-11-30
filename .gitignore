@@ -30,3 +30,9 @@ dist-ssr
 .env.development
 .env.production
 .env.test
+
+# Task completion and documentation files
+TASK_*.md
+ACCESSIBILITY_*.md
+WCAG_*.md
+HOW_TO_*.md

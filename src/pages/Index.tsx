@@ -1,117 +1,191 @@
 import { useEffect, useState } from 'react';
-import Papa from 'papaparse';
-import { CloudRain, Satellite, AlertTriangle, X, Eye, ArrowLeft, Play, RotateCcw, Droplets } from 'lucide-react'; // Thêm icon Droplets
-import { type Storm, type StormPoint } from '../lib/stormData';
+import { CloudRain, Satellite, AlertTriangle, X, Eye, ArrowLeft, Play, RotateCcw } from 'lucide-react';
+import { type Storm } from '../lib/stormData';
 import StormTracker from '../components/StormTracker';
 import { Card, CardContent } from '../components/ui/card';
 import WeatherMap from '../components/WeatherMap';
 import StormInfo from '../components/StormInfo';
 import { ThemeToggle } from '../components/ThemeToggle';
-
-// --- THÊM MỚI 3 IMPORT ---
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { StormPredictionForm } from "../components/StormPredictionForm";
-import { type LatLngExpression } from 'leaflet'; // Kiểu dữ liệu cho bản đồ
-
-// Khởi tạo Web Worker
-const dataWorker = new Worker(new URL('../lib/dataWorker.ts', import.meta.url));
+import { latLngBounds, type LatLngBounds } from 'leaflet';
+import TimelineSlider from '../components/timeline/TimelineSlider';
+import { useTimelineState } from '../hooks/useTimelineState';
+import { useTimelineSync } from '../hooks/useWindyStateSync';
 
 export default function Index() {
   const [selectedStorm, setSelectedStorm] = useState<Storm | undefined>(undefined);
   const [storms, setStorms] = useState<Storm[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);  
+  const [error, setError] = useState<string | null>(null);
   const [showSidebar, setShowSidebar] = useState(false);
   const [isPlayingAll, setIsPlayingAll] = useState(false);
 
-  // --- THÊM MỚI 1 STATE ---
-  // Để lưu kết quả dự đoán từ Kaggle
-  const [customPrediction, setCustomPrediction] = useState<
-    [number, number][] | null
-  >(null);
+  const [customPrediction, setCustomPrediction] = useState<[number, number][] | null>(null);
+  const [mapFocusBounds, setMapFocusBounds] = useState<LatLngBounds | null>(null);
 
+  // Timeline state management with global state sync
+  // Requirements: 2.3 - Ensure timeline and storm positions stay in sync
+  const timelineSync = useTimelineSync();
+  const {
+    filteredStorms,
+  } = useTimelineState(storms);
+  
+  // Use synchronized state from global context
+  const currentTime = timelineSync.currentTime;
+  const setCurrentTime = timelineSync.setCurrentTime;
+  const isPlaying = timelineSync.isPlaying;
+  const setIsPlaying = timelineSync.setIsPlaying;
+  const playbackSpeed = timelineSync.playbackSpeed;
+  const setPlaybackSpeed = timelineSync.setPlaybackSpeed;
+
+  // ✅ TẢI DỮ LIỆU - ĐÃ SỬA LỖI
   useEffect(() => {
-    // ... (code useEffect của bạn giữ nguyên) ...
-    dataWorker.onmessage = (event) => {
-      const { status, data, message } = event.data;
-      if (status === 'success') {
-        setStorms(data);
-        setLoading(false);
-      } else {
-        console.error("Worker Error:", message);
-        setError("Lỗi xử lý dữ liệu bão ở nền.");
-        setLoading(false);
+    setLoading(true);
+    setError(null);
+
+    const GET_STORMS_API_URL = "https://meadow-proexperiment-tobie.ngrok-free.dev/get-recent-storms";
+
+    fetch(GET_STORMS_API_URL, {
+      headers: {
+        'ngrok-skip-browser-warning': 'true', // ✅ Bypass cảnh báo Ngrok
       }
-    };
-
-    Papa.parse("/storm_data_cleaned.csv", {
-      download: true,
-      header: true,
-      skipEmptyLines: true,
-      complete: (results: any) => { 
-        dataWorker.postMessage(results.data);
-      },
-      error: (e) => { 
-        setError("Không thể tải file dữ liệu. Đảm bảo file nằm trong thư mục public.");
+    })
+      .then((res: Response) => {
+        console.log("📡 Response status:", res.status);
+        console.log("📡 Content-Type:", res.headers.get('content-type'));
+        
+        if (!res.ok) {
+          throw new Error(`Lỗi ${res.status}: ${res.statusText}`);
+        }
+        
+        // ✅ Kiểm tra Content-Type
+        const contentType = res.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          return res.text().then(text => {
+            console.error("❌ Server trả về HTML:", text.substring(0, 500));
+            throw new Error('Server trả về HTML thay vì JSON. Kiểm tra Ngrok hoặc backend!');
+          });
+        }
+        
+        return res.json();
+      })
+      .then((data: Storm[]) => {
+        console.log("✅ Đã tải thành công các cơn bão từ Kaggle:", data);
+        console.log("✅ Số lượng bão:", data?.length);
+        
+        // ✅ Validation
+        if (!Array.isArray(data)) {
+          console.error("❌ Dữ liệu không phải array:", data);
+          setStorms([]);
+        } else {
+          setStorms(data);
+        }
         setLoading(false);
-      },
-    });
-
-    return () => {
-      dataWorker.terminate();
-    };
+      })
+      .catch(err => {
+        console.error("❌ Lỗi khi fetch /get-recent-storms:", err);
+        setError(err.message || "Không thể tải danh sách bão từ server.");
+        setLoading(false);
+      });
   }, []);
 
-  // --- THÊM MỚI 1 HÀM ---
-  // Hàm này nhận kết quả từ StormPredictionForm
-  const handlePredictionResult = (data: any[]) => {
-    // Chuyển đổi data (VD: [{lat: 10, lng: 110}]) thành [[10, 110]]
-    const newPath: [number, number][] = data.map((p) => [
+  // DỰ ĐOÁN
+  const handlePredictionResult = (predictionData: any[]) => {
+    const newPath: [number, number][] = predictionData.map((p) => [
       parseFloat(p.lat),
       parseFloat(p.lng),
-    ]);
+    ] as [number, number]);
+
     setCustomPrediction(newPath);
+
+    if (newPath.length > 0) {
+      const bounds = latLngBounds(newPath);
+      setMapFocusBounds(bounds);
+    }
+
+    setShowSidebar(false);
   };
 
-  // ... (Giữ nguyên các hàm handleStormSelect, closeSidebar, v.v...) ...
+  // GIAO DIỆN
   const handleStormSelect = (storm: Storm) => {
     setSelectedStorm(storm);
     setIsPlayingAll(false);
   };
+
   const closeSidebar = () => {
     setShowSidebar(false);
     setSelectedStorm(undefined);
   };
+
   const toggleSidebar = () => {
     setShowSidebar(!showSidebar);
-    if (showSidebar) {
-        setSelectedStorm(undefined);
-    }
+    if (showSidebar) setSelectedStorm(undefined);
   };
-  const handleBackToList = () => {
-      setSelectedStorm(undefined);
-  };
+
+  const handleBackToList = () => setSelectedStorm(undefined);
   const handlePlayAll = () => {
-    setIsPlayingAll(true);    
+    setIsPlayingAll(true);
     setSelectedStorm(undefined);
     setShowSidebar(false);
   };
-  const handleReset = () => {
-    setIsPlayingAll(false);
-  };
-  
-  // ... (Giữ nguyên phần loading, error) ...
+  const handleReset = () => setIsPlayingAll(false);
+
   if (loading) {
-    return <div className="flex items-center justify-center h-screen text-xl font-semibold">Đang tải và xử lý dữ liệu bão ở nền...</div>;
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="flex flex-col items-center gap-4">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+          <p className="text-xl font-semibold">Đang tải dữ liệu bão từ server...</p>
+        </div>
+      </div>
+    );
   }
+
   if (error) {
-    return <div className="flex items-center justify-center h-screen text-red-500">{error}</div>;
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <p className="text-red-500 text-xl mb-4">{error}</p>
+          <button 
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            Thử lại
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 relative overflow-hidden">
-      <header className="bg-white/80 backdrop-blur-sm border-b border-gray-200 sticky top-0 z-[100] dark:bg-gray-950/80 dark:border-gray-800">
-        {/* ... (Nội dung header của bạn - giữ nguyên) ... */}
+      {/* Skip Links for Keyboard Navigation - WCAG 2.1 Level AA */}
+      <a 
+        href="#main-content"
+        className="absolute left-[-9999px] top-0 z-[2000] bg-blue-600 text-white px-4 py-2 rounded shadow-lg focus:left-4 focus:top-4"
+      >
+        Skip to main content
+      </a>
+      <a 
+        href="#storm-tracker-section"
+        className="absolute left-[-9999px] top-0 z-[2000] bg-blue-600 text-white px-4 py-2 rounded shadow-lg focus:left-48 focus:top-4"
+      >
+        Skip to storm tracker
+      </a>
+      <a 
+        href="#timeline-controls"
+        className="absolute left-[-9999px] top-0 z-[2000] bg-blue-600 text-white px-4 py-2 rounded shadow-lg focus:left-96 focus:top-4"
+      >
+        Skip to timeline controls
+      </a>
+
+      {/* HEADER */}
+      <header 
+        id="main-header"
+        className="bg-white/80 backdrop-blur-sm border-b border-gray-200 sticky top-0 z-[100] dark:bg-gray-950/80 dark:border-gray-800"
+        role="banner"
+      >
         <div className="container mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -125,19 +199,21 @@ export default function Index() {
                 <p className="text-sm text-gray-600 dark:text-gray-400">
                   Theo dõi và dự báo hướng đi của bão tại Việt Nam và Biển Đông
                 </p>
-              </div>    
+              </div>
             </div>
             <div className="flex items-center gap-4">
               <button
                 onClick={toggleSidebar}
-                className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-lg"
+                className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
+                aria-label={showSidebar ? "Close storm tracker sidebar" : "Open storm tracker sidebar"}
+                aria-expanded={showSidebar}
               >
                 <Eye className="h-4 w-4" />
                 <span className="hidden sm:inline">Theo dõi bão</span>
-              </button>         
+              </button>
               <ThemeToggle />
               <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-                <Satellite className="h-4 w-4" />       
+                <Satellite className="h-4 w-4" />
                 <span>Cập nhật: {new Date().toLocaleString('vi-VN')}</span>
               </div>
               {storms.some(s => s.status === 'active') && (
@@ -151,138 +227,104 @@ export default function Index() {
         </div>
       </header>
 
-      <div className="relative h-[calc(100vh-120px)] overflow-hidden">
+      {/* BẢN ĐỒ */}
+      <main 
+        id="main-content"
+        className="relative h-[calc(100vh-120px)] overflow-hidden"
+        role="main"
+        aria-label="Storm tracking map"
+      >
         <div className="absolute inset-0 z-10">
           <Card className="h-full border-0 rounded-none dark:bg-gray-900">
             <CardContent className="p-0 h-full relative">
-              
-              {/* --- SỬA ĐỔI: Thêm prop 'customPredictionPath' --- */}
               <WeatherMap
                 storms={storms}
                 selectedStorm={selectedStorm}
-                isPlayingAll={isPlayingAll}
-                customPredictionPath={customPrediction} // <-- TRUYỀN STATE MỚI
+                isPlayingAll={false}
+                customPredictionPath={customPrediction}
+                mapFocusBounds={mapFocusBounds}
+                onMapFocusComplete={() => setMapFocusBounds(null)}
               />
-              
-              {/* ... (Giữ nguyên các div absolute trên map - giữ nguyên) ... */}
-              <div className="absolute top-4 left-4 z-20 bg-white/90 backdrop-blur-sm rounded-lg p-3 dark:bg-gray-900/90">
-                 {/* ... */}
-              </div>
-              <div className="absolute top-4 right-4 z-[1000]">
-                 {/* ... */}
-              </div>
-              
+
+
             </CardContent>
           </Card>
         </div>
 
-        {/* --- SỬA ĐỔI: Tích hợp TABS vào Sidebar --- */}
-        <div className={`absolute top-0 right-0 h-full w-96 z-40 transform transition-transform duration-300 ease-in-out ${
-          showSidebar ? 'translate-x-0' : 'translate-x-full'
-        }`}>
-          <div className="h-full bg-white/95 backdrop-blur-md border-l border-gray-200 dark:bg-gray-900/95 dark:border-gray-700 shadow-2xl flex flex-col">
-            
-            {/* 1. Bọc nội dung Sidebar bằng Tabs */}
-            <Tabs defaultValue="tracker" className="h-full w-full flex flex-col">
-              
-              {/* 2. Thanh tiêu đề (Header) của Sidebar */}
-              <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-                  {/* Nút Back (vẫn giữ logic cũ) */}
-                  {(selectedStorm) ? (
-                      <button 
-                          onClick={handleBackToList} 
-                          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors mr-2"
-                      >
-                          <ArrowLeft className="h-5 w-5 text-gray-500 dark:text-gray-400" />
-                      </button>
-                  ) : (
-                      <div className="w-9" /> // Giữ chỗ
-                  )}
-                  
-                  {/* (Xóa H3 tiêu đề cũ ở đây) */}
+        {/* SIDEBAR */}
+        {showSidebar && (
+          <div 
+            id="storm-tracker-section"
+            className="absolute top-0 right-0 w-96 h-full bg-white dark:bg-gray-900 shadow-2xl z-[1001] overflow-hidden flex flex-col"
+            role="complementary"
+            aria-label="Storm tracker sidebar"
+          >
+            <div className="p-4 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
+              <h2 className="text-lg font-bold dark:text-gray-100" id="sidebar-heading">
+                {selectedStorm ? 'Chi tiết bão' : 'Danh sách bão'}
+              </h2>
+              <button
+                onClick={closeSidebar}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
+                aria-label="Close storm tracker sidebar"
+              >
+                <X className="h-5 w-5 dark:text-gray-400" />
+              </button>
+            </div>
 
-                  <button 
-                      onClick={closeSidebar}
-                      className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
-                  >
-                      <X className="h-5 w-5 text-gray-500 dark:text-gray-400" />
-                  </button>
-              </div>
-
-              {/* 3. Thanh chọn Tab */}
-              <TabsList className="grid w-full grid-cols-2 rounded-none">
-                <TabsTrigger value="tracker">
-                  <Eye className="h-4 w-4 mr-2" /> Theo Dõi
-                </TabsTrigger>
-                <TabsTrigger value="predict">
-                  <Droplets className="h-4 w-4 mr-2" /> Dự Đoán
-                </TabsTrigger>
+            <Tabs defaultValue="storms" className="flex-1 flex flex-col">
+              <TabsList className="grid w-full grid-cols-2 mx-4 mt-2">
+                <TabsTrigger value="storms">Bão hiện tại</TabsTrigger>
+                <TabsTrigger value="predict">Dự đoán</TabsTrigger>
               </TabsList>
 
-              {/* 4. Nội dung Tab 1: Theo dõi bão (Code cũ của bạn) */}
-              <TabsContent value="tracker" className="flex-1 overflow-hidden relative m-0">
-                {/* Đây là logic 2-div trượt ngang của bạn (giữ nguyên) */}
-                <div 
-                  className={`absolute inset-0 transition-transform duration-300 ease-in-out flex flex-col ${
-                    selectedStorm ? '-translate-x-full' : 'translate-x-0'
-                  }`}
-                >
-                  <div className="flex-1 min-h-0 overflow-y-auto">
+              <TabsContent value="storms" className="flex-1 overflow-hidden mt-2">
+                {selectedStorm ? (
+                  <div className="h-full flex flex-col">
+                    <button
+                      onClick={handleBackToList}
+                      className="flex items-center gap-2 px-4 py-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-gray-800 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
+                      aria-label="Back to storm list"
+                    >
+                      <ArrowLeft className="h-4 w-4" />
+                      Quay lại danh sách
+                    </button>
+                    <div className="flex-1 overflow-auto">
+                      <StormInfo storm={selectedStorm} />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="h-full overflow-auto">
                     <StormTracker
                       storms={storms}
-                      selectedStorm={selectedStorm}
                       onStormSelect={handleStormSelect}
                     />
                   </div>
-                </div>
-                <div 
-                  className={`absolute inset-0 transition-transform duration-300 ease-in-out flex flex-col ${
-                    selectedStorm ? 'translate-x-0' : 'translate-x-full'
-                  }`}
-                >
-                  <div className="flex-1 min-h-0 overflow-y-auto">
-                    {selectedStorm && (
-                      <div className="p-4">
-                        <StormInfo storm={selectedStorm} />
-                      </div>
-                    )}
-                  </div>
-                </div>
+                )}
               </TabsContent>
 
-              {/* 5. Nội dung Tab 2: Form dự đoán (Mới) */}
-              <TabsContent value="predict" className="flex-1 overflow-y-auto m-0">
-                <StormPredictionForm 
+              <TabsContent value="predict" className="flex-1 overflow-hidden mt-2">
+                <StormPredictionForm
                   onPredictionResult={handlePredictionResult}
-                  setIsLoading={setLoading} // Dùng chung state loading
+                  setIsLoading={setLoading}
                 />
               </TabsContent>
-
-            </Tabs> 
-            {/* --- Kết thúc Tabs --- */}
-
+            </Tabs>
           </div>
-        </div>
-        
-        {/* ... (Giữ nguyên nút bấm ToggleSidebar - giữ nguyên) ... */}
-        <button
-          onClick={toggleSidebar}
-          className="absolute top-1/2 right-4 -translate-y-1/2 z-30 bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-full shadow-xl hover:shadow-2xl transition-all duration-200 group"
-        >
-          <Eye className="h-5 w-5 group-hover:scale-110 transition-transform" />
-        </button>
-      </div>
-      
-      <footer className="bg-white/80 backdrop-blur-sm border-t border-gray-200 relative z-10 dark:bg-gray-950/80 dark:border-gray-800">
-        {/* ... (Nội dung footer của bạn - giữ nguyên) ... */}
+        )}
+      </main>
+
+      {/* FOOTER */}
+      <footer 
+        className="bg-white/80 backdrop-blur-sm border-t border-gray-200 relative z-10 dark:bg-gray-950/80 dark:border-gray-800"
+        role="contentinfo"
+      >
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400">
-            <div>
-              <p>© 2025 Dự báo Bão Việt Nam. Dữ liệu mô phỏng cho mục đích demo.</p>
-            </div>
+            <div><p>© 2025 Dự báo Bão Việt Nam. Dữ liệu mô phỏng cho mục đích demo.</p></div>
             <div className="flex items-center gap-4">
-              <span>Nguồn dữ liệu: Mô phỏng</span>
-              <span>Cập nhật: 15 phút/lần</span>
+              <span>Nguồn dữ liệu: NCICS (Live)</span>
+              <span>Cập nhật: Tải lại trang</span>
             </div>
           </div>
         </div>

@@ -1,52 +1,41 @@
-import React, { useEffect, useState, useRef } from "react";
-import { CircleMarker, Popup, Marker, Polygon, Polyline } from "react-leaflet";
+import React, { useState, useEffect } from "react";
+import { Marker, Popup, useMap } from "react-leaflet";
+import { getCategoryColor, type Storm, type StormPoint } from "../lib/stormData";
+import { GradientStormTrack } from "./storm/GradientStormTrack";
+import { HurricaneMarker } from "./storm/HurricaneMarker";
+import { ForecastCone } from "./storm/ForecastCone";
+import { StormTooltip } from "./storm/StormTooltip";
+import { CurrentPositionMarker } from "./storm/CurrentPositionMarker";
+import { WindStrengthCircles } from "./storm/WindStrengthCircles";
+import { StormInfluenceZone } from "./storm/StormInfluenceZone";
 import { divIcon } from "leaflet";
 import { renderToStaticMarkup } from "react-dom/server";
-import { getCategoryColor, type Storm, type StormPoint } from "../lib/stormData";
+import { getTrackForZoomLevel } from "../lib/stormPerformance";
+import {
+  validateAndSanitizeStorm,
+  getUserFriendlyErrorMessage,
+  hasForecastData,
+  getForecastMessage,
+  validateStorm,
+} from "../lib/stormValidation";
 
 interface StormAnimationProps {
   storm: Storm;
   isActive: boolean;
+  stormIndex?: number; // For offsetting overlapping tracks
+  totalStorms?: number; // Total number of storms being rendered
+  isWindyMode?: boolean; // Whether to use Windy mode visualization
+  currentTime?: number; // Current timeline position for temporal navigation
+  customColor?: string; // Custom color for this storm
 }
 
-const PulsingDivIcon = (category: string) => {
-  const color = getCategoryColor(category);
-  const html = renderToStaticMarkup(
-    <div
-      style={{
-        backgroundColor: color,
-        width: "24px",  
-        height: "24px",
-        borderRadius: "50%",
-        border: "3px solid white",
-        boxShadow: "0 0 12px rgba(0,0,0,0.3), 0 0 24px " + color,
-      }}
-    />
-  );
-  return divIcon({
-    html: html + `
-      <style>
-        @keyframes pulse-scale {
-          0%, 100% { transform: scale(1); opacity: 1; }
-          50% { transform: scale(1.3); opacity: 0.7; }
-        }
-        .custom-icon > div {
-          animation: pulse-scale 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        }
-      </style>
-    `,
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
-    className: "custom-icon",
-  });
-};
-
-/* ---------- helper geo functions ---------- */
-const toRad = (d: number) => (d * Math.PI) / 180;
-const toDeg = (r: number) => (r * 180) / Math.PI;
-
-/** geodesic offset: trả về [lat, lng] khi dịch điểm theo bearing và khoảng cách (km) */
-function offsetPoint(lat: number, lng: number, bearingDeg: number, offsetKm: number) {
+/**
+ * Geodesic offset: returns [lat, lng] when offsetting a point by bearing and distance (km)
+ */
+function offsetPoint(lat: number, lng: number, bearingDeg: number, offsetKm: number): [number, number] {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const toDeg = (r: number) => (r * 180) / Math.PI;
+  
   const R = 6371; // km
   const d = offsetKm / R;
   const brng = toRad(bearingDeg);
@@ -67,487 +56,371 @@ function offsetPoint(lat: number, lng: number, bearingDeg: number, offsetKm: num
   return [toDeg(lat2), toDeg(lon2)];
 }
 
-/** tính bearing (initial) từ from -> to (0..360) */
-function bearing(from: StormPoint, to: StormPoint) {
-  const lat1 = toRad(from.lat);
-  const lat2 = toRad(to.lat);
-  const dLon = toRad(to.lng - from.lng);
+/**
+ * Create storm name label icon for displaying storm name at current position
+ */
+const StormNameLabelIcon = (stormName: string, category: string) => {
+  const color = getCategoryColor(category);
+  const html = renderToStaticMarkup(
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+      <div
+        style={{
+          display: "inline-block",
+          padding: "8px 12px",
+          borderRadius: "6px",
+          background: "rgba(255,255,255,0.98)",
+          boxShadow: "0 3px 10px rgba(0,0,0,0.25)",
+          border: `3px solid ${color}`,
+          fontSize: "14px",
+          fontWeight: 700,
+          color: "#111",
+          textAlign: "center",
+          whiteSpace: "nowrap",
+          minWidth: "120px"
+        }}
+      >
+        {stormName}
+      </div>
+      {/* Small triangle pointer */}
+      <div style={{
+        width: 0,
+        height: 0,
+        borderLeft: "8px solid transparent",
+        borderRight: "8px solid transparent",
+        borderTop: `10px solid rgba(255,255,255,0.98)`,
+        marginTop: "-2px",
+        filter: "drop-shadow(0 2px 3px rgba(0,0,0,0.15))"
+      }} />
+    </div>
+  );
 
-  const y = Math.sin(dLon) * Math.cos(lat2);
-  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-  let brng = Math.atan2(y, x);
-  brng = toDeg(brng);
-  return (brng + 360) % 360;
-}
+  return divIcon({
+    html,
+    className: "storm-name-label",
+    iconSize: [140, 50],
+    iconAnchor: [70, 50], // anchor bottom center
+  });
+};
 
-/* ---------- component ---------- */
-export default function StormAnimation({ storm, isActive }: StormAnimationProps) {
-  // allPoints: history + current + forecast
-  const allPoints: StormPoint[] = [...storm.historical, storm.currentPosition, ...storm.forecast];
-  const currentIndexDefault = storm.historical.length;
-  
-  const [currentIndex, setCurrentIndex] = useState<number>(currentIndexDefault);
-  const [animatedPosition, setAnimatedPosition] = useState<StormPoint>(storm.currentPosition);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+/* ---------- MAIN COMPONENT ---------- */
+export default function StormAnimation({ 
+  storm, 
+  isActive,
+  isWindyMode = false,
+  currentTime,
+  customColor,
+}: StormAnimationProps) {
+  const map = useMap();
+  const [zoomLevel, setZoomLevel] = useState(map.getZoom());
 
-  // Animation ticker
+  // Track zoom level changes for adaptive rendering
   useEffect(() => {
-    // Clear previous interval
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
+    const handleZoom = () => {
+      setZoomLevel(map.getZoom());
+    };
 
-    if (!isActive || allPoints.length === 0) {
-      // Reset về vị trí hiện tại khi không active
-      setCurrentIndex(currentIndexDefault);
-      setAnimatedPosition(storm.currentPosition);
-      return;
-    }
-
-    // Bắt đầu từ điểm đầu tiên
-    let idx = 0;
-    setCurrentIndex(idx);
-    setAnimatedPosition(allPoints[idx]);
-
-    intervalRef.current = setInterval(() => {
-      idx = idx + 1;
-      
-      if (idx >= allPoints.length) {
-        // Loop lại từ đầu
-        idx = 0;
-      }
-      
-      setCurrentIndex(idx);
-      setAnimatedPosition(allPoints[idx]);
-    }, 800); // 800ms mỗi bước để mượt hơn
+    map.on('zoomend', handleZoom);
 
     return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
+      map.off('zoomend', handleZoom);
     };
-  }, [isActive, storm.id]); // Chỉ phụ thuộc vào isActive và storm.id
+  }, [map]);
 
-  /* ---------- build cone of uncertainty ---------- */
-  if (allPoints.length < 2) {
-    return (
-      <>
-        <CircleMarker
-          center={[animatedPosition.lat, animatedPosition.lng]}
-          radius={12}
-          pathOptions={{
-            fillColor: getCategoryColor(animatedPosition.category),
-            color: "#fff",
-            weight: 3,
-            fillOpacity: 0.8,
-          }}
+  // Validate storm data
+  const validationResult = validateStorm(storm);
+  
+  // If validation fails, show error message
+  if (!validationResult.isValid) {
+    const errorMessage = getUserFriendlyErrorMessage(validationResult);
+    
+    // Log error for debugging
+    console.error(
+      `[StormAnimation] Validation failed for storm ${storm.nameVi || storm.id}:`,
+      validationResult.errors
+    );
+
+    // Show error marker at current position if available
+    if (storm.currentPosition) {
+      return (
+        <HurricaneMarker
+          position={storm.currentPosition}
+          isPulsing={false}
+          useIntensitySize={false}
         >
           <Popup>
             <div className="p-2">
-              <h3 className="font-bold text-lg">{storm.nameVi}</h3>
-              <p><strong>Vị trí:</strong> {animatedPosition.lat.toFixed(2)}°N, {animatedPosition.lng.toFixed(2)}°E</p>
+              <h3 className="font-bold text-lg text-red-600">Lỗi dữ liệu</h3>
+              <p className="text-sm text-gray-700 mt-2">{errorMessage}</p>
+              <p className="text-xs text-gray-500 mt-2">
+                Bão: {storm.nameVi || storm.id}
+              </p>
             </div>
           </Popup>
-        </CircleMarker>
-      </>
-    );
-  }
-
-  const lastIndex = allPoints.length - 1;
-  const currentIdx = currentIndexDefault;
-
-  // Chỉ vẽ cone cho forecast (từ vị trí hiện tại trở đi)
-  const forecastPoints = allPoints.slice(currentIdx);
-  
-  // Tính hướng đi cuối cùng cho vòng tròn chỉ hướng
-  const lastPoint = allPoints[lastIndex];
-  const secondLastPoint = allPoints[lastIndex - 1];
-  const finalBearing = secondLastPoint ? bearing(secondLastPoint, lastPoint) : 0;
-  
-  const leftOuter: [number, number][] = [];
-  const rightOuter: [number, number][] = [];
-  const leftMiddle: [number, number][] = [];
-  const rightMiddle: [number, number][] = [];
-  const leftInner: [number, number][] = [];
-  const rightInner: [number, number][] = [];
-
-  for (let i = 0; i < forecastPoints.length; i++) {
-    const pt = forecastPoints[i];
-    
-    // Tính bearing
-    let brng: number;
-    if (i < forecastPoints.length - 1) {
-      brng = bearing(pt, forecastPoints[i + 1]);
-    } else if (i > 0) {
-      brng = bearing(forecastPoints[i - 1], pt);
-    } else {
-      brng = 0;
+        </HurricaneMarker>
+      );
     }
 
-    // Tính offset dựa trên cường độ bão
-    // Bão càng mạnh (windSpeed cao) → cone càng hẹp (độ chắc chắn cao)
-    // Bão càng yếu (windSpeed thấp) → cone càng rộng (độ không chắc chắn cao)
-    const windSpeed = pt.windSpeed || 50; // km/h
-    
-    // Công thức: offset tỉ lệ nghịch với windSpeed
-    // windSpeed 150+ km/h → offset ~40-60km (hẹp)
-    // windSpeed 50-80 km/h → offset ~200-300km (rộng)
-    const minOffset = 40;
-    const maxOffset = 300;
-    
-    // Normalize windSpeed (giả sử range 30-200 km/h)
-    const normalizedWind = Math.max(0, Math.min(1, (windSpeed - 30) / 170));
-    
-    // Offset tỉ lệ nghịch: gió mạnh → offset nhỏ
-    const offsetKm = maxOffset - normalizedWind * (maxOffset - minOffset);
-    
-    // Thêm yếu tố khoảng cách thời gian (cone mở rộng theo thời gian)
-    const timeProgress = forecastPoints.length > 1 ? i / (forecastPoints.length - 1) : 0;
-    const timeMultiplier = 1 + timeProgress * 0.5; // tăng thêm 50% theo thời gian
-    
-    const finalOffset = offsetKm * timeMultiplier;
-
-    // 3 lớp với độ rộng khác nhau
-    const outerOffset = finalOffset;
-    const middleOffset = finalOffset * 0.65;
-    const innerOffset = finalOffset * 0.35;
-
-    leftOuter.push(offsetPoint(pt.lat, pt.lng, brng - 90, outerOffset) as [number, number]);
-    rightOuter.push(offsetPoint(pt.lat, pt.lng, brng + 90, outerOffset) as [number, number]);
-    
-    leftMiddle.push(offsetPoint(pt.lat, pt.lng, brng - 90, middleOffset) as [number, number]);
-    rightMiddle.push(offsetPoint(pt.lat, pt.lng, brng + 90, middleOffset) as [number, number]);
-    
-    leftInner.push(offsetPoint(pt.lat, pt.lng, brng - 90, innerOffset) as [number, number]);
-    rightInner.push(offsetPoint(pt.lat, pt.lng, brng + 90, innerOffset) as [number, number]);
+    // If no current position, return null
+    return null;
   }
 
-  // Tạo polygon khép kín cho mỗi lớp
-  const outerCone = [...leftOuter, ...rightOuter.slice().reverse()];
-  const middleCone = [...leftMiddle, ...rightMiddle.slice().reverse()];
-  const innerCone = [...leftInner, ...rightInner.slice().reverse()];
+  // Sanitize storm data (fill gaps, interpolate missing points)
+  const sanitizedStorm = validateAndSanitizeStorm(storm);
   
-  const centerTrack: [number, number][] = forecastPoints.map((p) => [p.lat, p.lng]);
+  if (!sanitizedStorm) {
+    console.error(
+      `[StormAnimation] Failed to sanitize storm data for ${storm.nameVi || storm.id}`
+    );
+    return null;
+  }
 
-  /* ---------- render ---------- */
-  return (
-    <>
-      {/* Lớp ngoài cùng - màu nhạt nhất */}
-      <Polygon
-        positions={outerCone}
-        pathOptions={{
-          color: "transparent",
-          weight: 0,
-          fillColor: "#e5e7eb",
-          fillOpacity: 0.25,
-        }}
-      />
-      
-      {/* Viền outer */}
-      <Polyline
-        positions={leftOuter}
-        pathOptions={{
-          color: "#ffffff",
-          weight: 2.5,
-          opacity: 0.8,
-          dashArray: "12,10",
-        }}
-      />
-      <Polyline
-        positions={rightOuter}
-        pathOptions={{
-          color: "#ffffff",
-          weight: 2.5,
-          opacity: 0.8,
-          dashArray: "12,10",
-        }}
-      />
+  // Use sanitized storm data
+  const workingStorm = sanitizedStorm;
 
-      {/* Lớp giữa */}
-      <Polygon
-        positions={middleCone}
-        pathOptions={{
-          color: "transparent",
-          weight: 0,
-          fillColor: "#d1d5db",
-          fillOpacity: 0.3,
-        }}
-      />
-      
-      {/* Viền middle */}
-      <Polyline
-        positions={leftMiddle}
-        pathOptions={{
-          color: "#ffffff",
-          weight: 2,
-          opacity: 0.75,
-          dashArray: "10,8",
-        }}
-      />
-      <Polyline
-        positions={rightMiddle}
-        pathOptions={{
-          color: "#ffffff",
-          weight: 2,
-          opacity: 0.75,
-          dashArray: "10,8",
-        }}
-      />
+  // Combine all points: historical + current + forecast
+  const allPoints: StormPoint[] = [
+    ...workingStorm.historical, 
+    workingStorm.currentPosition, 
+    ...workingStorm.forecast
+  ];
 
-      {/* Lớp trong - màu đậm nhất */}
-      <Polygon
-        positions={innerCone}
-        pathOptions={{
-          color: "transparent",
-          weight: 0,
-          fillColor: "#9ca3af",
-          fillOpacity: 0.35,
-        }}
-      />
-      
-      {/* Viền inner */}
-      <Polyline
-        positions={leftInner}
-        pathOptions={{
-          color: "#ffffff",
-          weight: 1.8,
-          opacity: 0.7,
-          dashArray: "8,6",
-        }}
-      />
-      <Polyline
-        positions={rightInner}
-        pathOptions={{
-          color: "#ffffff",
-          weight: 1.8,
-          opacity: 0.7,
-          dashArray: "8,6",
-        }}
-      />
-
-      {/* Center track - đường trung tâm */}
-      <Polyline
-        positions={centerTrack}
-        pathOptions={{
-          color: "#ffffff",
-          weight: 2.5,
-          opacity: 0.9,
-          dashArray: "3,12",
-        }}
-      />
-
-      {/* Vẽ đường đi đã qua (từ điểm đầu đến vị trí hiện tại) */}
-      {currentIndex > 0 && (
-        <Polyline
-          positions={allPoints.slice(0, currentIndex + 1).map(p => [p.lat, p.lng] as [number, number])}
-          pathOptions={{
-            color: getCategoryColor(animatedPosition.category),
-            weight: 4,
-            opacity: 0.8,
-          }}
-        />
-      )}
-
-      {/* Pulsing marker */}
-      <Marker
-        position={[animatedPosition.lat, animatedPosition.lng]}
-        icon={PulsingDivIcon(animatedPosition.category)}
-      />
-
-      {/* Wind Radii Ellipses - Vùng ảnh hưởng gió */}
-      {(() => {
-        // Tính hướng di chuyển để xoay ellipse
-        let movementBearing = 0;
-        if (currentIndex < allPoints.length - 1) {
-          movementBearing = bearing(animatedPosition, allPoints[currentIndex + 1]);
-        } else if (currentIndex > 0) {
-          movementBearing = bearing(allPoints[currentIndex - 1], animatedPosition);
-        }
-
-        // Tạo hình ellipse bằng cách tạo nhiều điểm xung quanh tâm
-        const createEllipse = (centerLat: number, centerLng: number, radiusA: number, radiusB: number, rotationDeg: number, numPoints = 64) => {
-          const points: [number, number][] = [];
-          const rotation = toRad(rotationDeg);
-          
-          for (let i = 0; i <= numPoints; i++) {
-            const angle = (i / numPoints) * 2 * Math.PI;
-            
-            // Tọa độ ellipse chuẩn
-            const x = radiusA * Math.cos(angle);
-            const y = radiusB * Math.sin(angle);
-            
-            // Xoay theo hướng di chuyển
-            const xRot = x * Math.cos(rotation) - y * Math.sin(rotation);
-            const yRot = x * Math.sin(rotation) + y * Math.cos(rotation);
-            
-            // Chuyển sang tọa độ địa lý
-            const point = offsetPoint(centerLat, centerLng, 0, yRot);
-            const finalPoint = offsetPoint(point[0], point[1], 90, xRot);
-            points.push(finalPoint as [number, number]);
-          }
-          
-          return points;
-        };
-
-        // 3 ellipse với kích thước khác nhau
-        const outerEllipse = createEllipse(animatedPosition.lat, animatedPosition.lng, 250, 180, movementBearing);
-        const middleEllipse = createEllipse(animatedPosition.lat, animatedPosition.lng, 160, 110, movementBearing);
-        const innerEllipse = createEllipse(animatedPosition.lat, animatedPosition.lng, 90, 60, movementBearing);
-
-        return (
-          <>
-            {/* Ellipse ngoài cùng - Gió 34 knots */}
-            <Polygon
-              positions={outerEllipse}
-              pathOptions={{
-                color: "#ffffff",
-                weight: 2,
-                opacity: 0.5,
-                dashArray: "10,8",
-                fillColor: "#d1d5db",
-                fillOpacity: 0.12,
-              }}
-            />
-            
-            {/* Ellipse giữa - Gió 50 knots */}
-            <Polygon
-              positions={middleEllipse}
-              pathOptions={{
-                color: "#ffffff",
-                weight: 2,
-                opacity: 0.6,
-                dashArray: "8,6",
-                fillColor: "#9ca3af",
-                fillOpacity: 0.15,
-              }}
-            />
-            
-            {/* Ellipse trong - Gió 64 knots */}
-            <Polygon
-              positions={innerEllipse}
-              pathOptions={{
-                color: "#ffffff",
-                weight: 2,
-                opacity: 0.7,
-                fillColor: getCategoryColor(animatedPosition.category),
-                fillOpacity: 0.2,
-              }}
-            />
-          </>
-        );
-      })()}
-
-      {/* Main circle marker */}
-      <CircleMarker
-        center={[animatedPosition.lat, animatedPosition.lng]}
-        radius={isActive ? 14 : 10}
-        pathOptions={{
-          fillColor: getCategoryColor(animatedPosition.category),
-          color: "#fff",
-          weight: 3,
-          fillOpacity: 0.9,
-        }}
+  // Handle edge case: not enough points to render
+  if (allPoints.length < 2) {
+    const forecastMsg = getForecastMessage(workingStorm);
+    
+    return (
+      <HurricaneMarker
+        position={workingStorm.currentPosition}
+        isPulsing={isActive}
+        useIntensitySize={true}
       >
         <Popup>
           <div className="p-2">
-            <h3 className="font-bold text-lg">{storm.nameVi}</h3>
-            <p className="text-xs text-gray-500 mb-2">
-              {currentIndex <= currentIdx ? "Lịch sử" : "Dự báo"}
-            </p>
+            <h3 className="font-bold text-lg">{workingStorm.nameVi}</h3>
             <p>
-              <strong>Thời gian:</strong>{" "}
-              {new Date(animatedPosition.timestamp).toLocaleString("vi-VN")}
+              <strong>Vị trí:</strong> {workingStorm.currentPosition.lat.toFixed(2)}°N, {workingStorm.currentPosition.lng.toFixed(2)}°E
             </p>
-            <p>
-              <strong>Vị trí:</strong> {animatedPosition.lat.toFixed(2)}°N,{" "}
-              {animatedPosition.lng.toFixed(2)}°E
-            </p>
-            <p>
-              <strong>Tốc độ gió:</strong> {animatedPosition.windSpeed} km/h
-            </p>
-            <p>
-              <strong>Áp suất:</strong> {animatedPosition.pressure} hPa
-            </p>
+            {forecastMsg && (
+              <p className="text-sm text-yellow-600 mt-2">{forecastMsg}</p>
+            )}
           </div>
         </Popup>
-      </CircleMarker>
+      </HurricaneMarker>
+    );
+  }
 
-      {/* Vòng tròn chỉ hướng đi cuối cùng */}
-      {lastIndex >= 0 && (
-        <>
-          {/* Vòng tròn lớn tại điểm cuối */}
-          <CircleMarker
-            center={[lastPoint.lat, lastPoint.lng]}
-            radius={20}
-            pathOptions={{
-              fillColor: "transparent",
-              color: getCategoryColor(lastPoint.category),
-              weight: 3,
-              opacity: 0.7,
-              dashArray: "8,8",
-            }}
+  // Separate historical and forecast points
+  const historicalPoints = [...workingStorm.historical, workingStorm.currentPosition];
+  const forecastPoints = workingStorm.forecast;
+
+  // Check if forecast data is available
+  const hasForecast = hasForecastData(workingStorm);
+  const forecastMessage = getForecastMessage(workingStorm);
+
+  // Get optimized points based on zoom level
+  const optimizedHistoricalPoints = getTrackForZoomLevel(historicalPoints, zoomLevel);
+  const optimizedForecastPoints = forecastPoints.length > 0 
+    ? getTrackForZoomLevel([storm.currentPosition, ...forecastPoints], zoomLevel)
+    : [];
+
+  return (
+    <>
+      {/* Historical Storm Track with Gradient Colors */}
+      {optimizedHistoricalPoints.length >= 2 && (
+        <GradientStormTrack
+          points={optimizedHistoricalPoints}
+          isHistorical={true}
+          isWindyMode={isWindyMode}
+          customColor={customColor}
+        />
+      )}
+
+      {/* Forecast Storm Track with Gradient Colors (dashed) */}
+      {hasForecast && optimizedForecastPoints.length >= 1 && (
+        <GradientStormTrack
+          points={optimizedForecastPoints}
+          isHistorical={false}
+          isWindyMode={isWindyMode}
+          customColor={customColor}
+        />
+      )}
+
+      {/* Forecast Cone of Uncertainty */}
+      {hasForecast && forecastPoints.length >= 1 && (
+        <ForecastCone
+          currentPosition={workingStorm.currentPosition}
+          forecastPoints={forecastPoints}
+          isWindyMode={isWindyMode}
+        />
+      )}
+
+      {/* Wind Strength Circles - only at current position */}
+      {workingStorm.currentPosition.windSpeed && (
+        <WindStrengthCircles
+          center={{
+            lat: workingStorm.currentPosition.lat,
+            lng: workingStorm.currentPosition.lng,
+          }}
+          windSpeed={workingStorm.currentPosition.windSpeed}
+          category={workingStorm.currentPosition.category}
+          isAnimating={false}
+          visible={!isActive}
+          isWindyMode={isWindyMode}
+        />
+      )}
+
+      {/* Current Position Marker - transition point between historical and forecast */}
+      <CurrentPositionMarker
+        position={workingStorm.currentPosition}
+        stormName={workingStorm.nameVi}
+        showLabel={true}
+        isWindyMode={isWindyMode}
+      >
+        <Popup>
+          <div style={{ minWidth: 160 }}>
+            <div style={{ fontWeight: 700 }}>{workingStorm.nameVi}</div>
+            <div style={{ fontSize: 12, color: "#555", marginBottom: 6 }}>Vị trí hiện tại</div>
+            <div style={{ fontSize: 12, color: "#555", marginBottom: 6 }}>
+              {new Date(workingStorm.currentPosition.timestamp).toLocaleString("vi-VN")}
+            </div>
+            <div><strong>Vị trí:</strong> {workingStorm.currentPosition.lat.toFixed(2)}°N, {workingStorm.currentPosition.lng.toFixed(2)}°E</div>
+            <div><strong>Tốc độ gió:</strong> {workingStorm.currentPosition.windSpeed ?? "—"} km/h</div>
+            <div><strong>Áp suất:</strong> {workingStorm.currentPosition.pressure ?? "—"} hPa</div>
+            <div><strong>Phân loại:</strong> {workingStorm.currentPosition.category}</div>
+            {forecastMessage && (
+              <div style={{ fontSize: 12, color: "#f59e0b", marginTop: 8, fontStyle: "italic" }}>
+                {forecastMessage}
+              </div>
+            )}
+          </div>
+        </Popup>
+      </CurrentPositionMarker>
+
+      {/* Storm Name Label at Current Position */}
+      {(() => {
+        // Position label slightly above current position
+        const labelPosition = offsetPoint(workingStorm.currentPosition.lat, workingStorm.currentPosition.lng, 0, 15); // 15km north
+        return (
+          <Marker
+            position={[labelPosition[0], labelPosition[1]]}
+            icon={StormNameLabelIcon(workingStorm.nameVi, workingStorm.currentPosition.category)}
+            zIndexOffset={1000}
           >
             <Popup>
-              <div className="p-2">
-                <h3 className="font-bold text-lg">Điểm dự báo cuối</h3>
-                <p className="text-xs text-gray-500 mb-2">
-                  Vị trí dự kiến sau {forecastPoints.length * 6}h
-                </p>
-                <p>
-                  <strong>Thời gian:</strong>{" "}
-                  {new Date(lastPoint.timestamp).toLocaleString("vi-VN")}
-                </p>
-                <p>
-                  <strong>Vị trí:</strong> {lastPoint.lat.toFixed(2)}°N,{" "}
-                  {lastPoint.lng.toFixed(2)}°E
-                </p>
-                <p>
-                  <strong>Hướng di chuyển:</strong> {finalBearing.toFixed(0)}°
-                </p>
+              <div style={{ minWidth: 160 }}>
+                <div style={{ fontWeight: 700 }}>{workingStorm.nameVi}</div>
+                <div style={{ fontSize: 12, color: "#555", marginBottom: 6 }}>Vị trí hiện tại</div>
+                <div style={{ fontSize: 12, color: "#555", marginBottom: 6 }}>
+                  {new Date(workingStorm.currentPosition.timestamp).toLocaleString("vi-VN")}
+                </div>
+                <div><strong>Vị trí:</strong> {workingStorm.currentPosition.lat.toFixed(2)}°N, {workingStorm.currentPosition.lng.toFixed(2)}°E</div>
+                <div><strong>Tốc độ gió:</strong> {workingStorm.currentPosition.windSpeed ?? "—"} km/h</div>
+                <div><strong>Áp suất:</strong> {workingStorm.currentPosition.pressure ?? "—"} hPa</div>
+                <div><strong>Phân loại:</strong> {workingStorm.currentPosition.category}</div>
               </div>
             </Popup>
-          </CircleMarker>
+          </Marker>
+        );
+      })()}
 
-          {/* Mũi tên chỉ hướng */}
-          {(() => {
-            const arrowLength = 50; // km
-            const arrowTip = offsetPoint(lastPoint.lat, lastPoint.lng, finalBearing, arrowLength);
-            const arrowLeft = offsetPoint(arrowTip[0], arrowTip[1], finalBearing - 150, 15);
-            const arrowRight = offsetPoint(arrowTip[0], arrowTip[1], finalBearing + 150, 15);
-            
-            return (
-              <>
-                {/* Thân mũi tên */}
-                <Polyline
-                  positions={[
-                    [lastPoint.lat, lastPoint.lng],
-                    arrowTip as [number, number]
-                  ]}
-                  pathOptions={{
-                    color: getCategoryColor(lastPoint.category),
-                    weight: 4,
-                    opacity: 0.8,
-                  }}
-                />
-                {/* Đầu mũi tên */}
-                <Polyline
-                  positions={[
-                    arrowLeft as [number, number],
-                    arrowTip as [number, number],
-                    arrowRight as [number, number]
-                  ]}
-                  pathOptions={{
-                    color: getCategoryColor(lastPoint.category),
-                    weight: 4,
-                    opacity: 0.8,
-                  }}
-                />
-              </>
-            );
-          })()}
-        </>
+      {/* Vùng ảnh hưởng bao quanh toàn bộ đường đi lịch sử */}
+      {!isActive && optimizedHistoricalPoints.length >= 2 && (
+        <StormInfluenceZone
+          points={optimizedHistoricalPoints}
+          color={customColor || getCategoryColor(workingStorm.currentPosition.category)}
+          opacity={0.15}
+        />
+      )}
+
+      {/* Hurricane Markers along Historical Track */}
+      {!isActive && optimizedHistoricalPoints.map((point, index) => {
+        // Skip every other point to avoid clutter, but always show first and last
+        if (index > 0 && index < optimizedHistoricalPoints.length - 1 && index % 2 !== 0) {
+          return null;
+        }
+
+        return (
+          <HurricaneMarker
+            key={`historical-marker-${index}`}
+            position={point}
+            nextPosition={optimizedHistoricalPoints[index + 1]}
+            previousPosition={optimizedHistoricalPoints[index - 1]}
+            isPulsing={false}
+            useIntensitySize={true}
+            showIntensityGlow={false}
+          >
+            <StormTooltip
+              stormName={workingStorm.nameVi}
+              stormData={point}
+              permanent={false}
+              currentTime={currentTime}
+              isHistorical={true}
+              isForecast={false}
+            />
+          </HurricaneMarker>
+        );
+      })}
+
+      {/* Vùng ảnh hưởng bao quanh toàn bộ đường đi dự báo */}
+      {hasForecast && !isActive && optimizedForecastPoints.length >= 2 && (
+        <StormInfluenceZone
+          points={optimizedForecastPoints}
+          color={customColor || getCategoryColor(workingStorm.currentPosition.category)}
+          opacity={0.12}
+        />
+      )}
+
+      {/* Hurricane Markers along Forecast Track */}
+      {hasForecast && !isActive && optimizedForecastPoints.slice(1).map((point, index) => {
+        // Show fewer markers on forecast track
+        if (index % 3 !== 0 && index !== optimizedForecastPoints.length - 2) {
+          return null;
+        }
+
+        return (
+          <HurricaneMarker
+            key={`forecast-marker-${index}`}
+            position={point}
+            nextPosition={optimizedForecastPoints[index + 2]}
+            previousPosition={index === 0 ? workingStorm.currentPosition : optimizedForecastPoints[index]}
+            isPulsing={false}
+            useIntensitySize={true}
+            showIntensityGlow={false}
+          >
+            <StormTooltip
+              stormName={workingStorm.nameVi}
+              stormData={point}
+              permanent={false}
+              currentTime={currentTime}
+              isHistorical={false}
+              isForecast={true}
+            />
+          </HurricaneMarker>
+        );
+      })}
+
+      {/* Final Forecast Point with Enhanced Marker */}
+      {hasForecast && optimizedForecastPoints.length > 1 && !isActive && (
+        <HurricaneMarker
+          position={optimizedForecastPoints[optimizedForecastPoints.length - 1]}
+          previousPosition={optimizedForecastPoints[optimizedForecastPoints.length - 2] || workingStorm.currentPosition}
+          isPulsing={true}
+          useIntensitySize={true}
+          showIntensityGlow={false}
+        >
+          <Popup>
+            <div className="p-2">
+              <h3 className="font-bold text-lg">Điểm dự báo cuối</h3>
+              <p className="text-xs text-gray-500 mb-2">
+                Vị trí dự kiến sau {forecastPoints.length * 6}h
+              </p>
+              <p><strong>Thời gian:</strong> {new Date(optimizedForecastPoints[optimizedForecastPoints.length - 1].timestamp).toLocaleString("vi-VN")}</p>
+              <p><strong>Vị trí:</strong> {optimizedForecastPoints[optimizedForecastPoints.length - 1].lat.toFixed(2)}°N, {optimizedForecastPoints[optimizedForecastPoints.length - 1].lng.toFixed(2)}°E</p>
+              <p><strong>Tốc độ gió:</strong> {optimizedForecastPoints[optimizedForecastPoints.length - 1].windSpeed} km/h</p>
+              <p><strong>Áp suất:</strong> {optimizedForecastPoints[optimizedForecastPoints.length - 1].pressure} hPa</p>
+            </div>
+          </Popup>
+        </HurricaneMarker>
       )}
     </>
   );
