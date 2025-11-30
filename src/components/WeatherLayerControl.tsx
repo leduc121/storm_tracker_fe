@@ -1,7 +1,5 @@
-import L from 'leaflet';
 import { TileLayer } from 'react-leaflet';
 
-// Export LayerType để có thể sử dụng ở các file khác
 export type LayerType = 'none' | 'satellite' | 'temperature' | 'radar' | 'wind';
 
 interface WeatherLayerControlProps {
@@ -12,12 +10,10 @@ interface WeatherLayerControlProps {
 const WeatherLayerControl: React.FC<WeatherLayerControlProps> = ({ type, opacity }) => {
   if (type === 'none') return null;
 
-  // Lấy API key từ biến môi trường
   const apiKey = import.meta.env.VITE_OPENWEATHER_API_KEY;
-
   let url = '';
   let attribution = '';
-  
+
   switch (type) {
     case 'temperature':
       url = `https://tile.openweathermap.org/map/temp_new/{z}/{x}/{y}.png?appid=${apiKey}`;
@@ -36,11 +32,11 @@ const WeatherLayerControl: React.FC<WeatherLayerControlProps> = ({ type, opacity
   if (!url) return null;
 
   return (
-    <TileLayer 
+    <TileLayer
       key={`weather-layer-${type}`}
-      url={url} 
+      url={url}
       attribution={attribution}
-      opacity={opacity} 
+      opacity={opacity}
       zIndex={10}
     />
   );

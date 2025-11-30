@@ -1,4 +1,4 @@
-import { ArrowUpRight, CloudRain, Wind, Thermometer, MapPin } from 'lucide-react';
+import { ArrowUpRight, CloudRain } from 'lucide-react';
 import { Card, CardContent } from './ui/card';
 import { type Storm } from '../lib/stormData';
 
