@@ -4,6 +4,7 @@ import Index from './pages/Index';
 import NotFound from './pages/NotFound';
 import { TooltipProvider } from '@radix-ui/react-tooltip';
 import { Toaster } from './components/ui/toaster';
+import { WindyStateProvider } from './contexts/WindyStateContext';
 import './index.css';
 import { useTheme } from './hooks/use-theme';
 
@@ -14,15 +15,17 @@ const App = () => {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
+      <WindyStateProvider>
+        <TooltipProvider>
+          <Toaster />
+          <BrowserRouter>
+            <Routes>
+              <Route path="/" element={<Index />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+      </WindyStateProvider>
     </QueryClientProvider>
   );
 };

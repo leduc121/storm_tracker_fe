@@ -22,7 +22,14 @@ export interface Storm {
     currentPosition: StormPoint;
     historical: StormPoint[];
     forecast: StormPoint[];
-    maxWindKmh: number; 
+    maxWindKmh: number;
+    _timelineMetadata?: {
+        isHistorical: boolean;
+        isForecast: boolean;
+        interpolated: boolean;
+        stormStartTime: number;
+        stormEndTime: number;
+    };
 }
 
 export function getCategoryColor(category: string): string {
